@@ -321,8 +321,91 @@ namespace NeoClient
 
             return result.Any();
         }
+        public IStatementResult AddNodeWithAll(EntityBase entity, int deep = int.MaxValue)
+        {
+            
+            if (entity == null)
+                throw new ArgumentNullException("entity");
 
-        public T Add<T>(T entity) where T : EntityBase, new()
+         
+            string clause = null;
+            bool firstNode = true;
+
+            bool hasRelationship = false;
+            StringFormatter match = null;
+
+            var parameters = new Lazy<Dictionary<string, object>>();
+
+            // new
+            var referenceParameters = new Lazy<Dictionary<string, object>>();
+
+            var conditions = new Lazy<StringBuilder>();
+
+            foreach (PropertyInfo prop in entity.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (prop.GetCustomAttribute(typeof(NotMappedAttribute), true) != null)
+                    continue;         
+
+                if (prop.Name.Equals("Uuid", StringComparison.CurrentCultureIgnoreCase))
+                    continue;
+
+                // new
+                if (prop.GetCustomAttribute(typeof(RelationshipAttribute), true) != null)
+                {
+                    var n = prop.GetValue(entity, null);
+                    switch(n)
+                    {
+                        case EntityBase obj:
+                            break;
+                        case IEnumerable<EntityBase> enumerable:
+                            foreach (var obj in enumerable)
+                            {                                
+                                if (deep != 0)
+                                {
+                                    var re = AddNodeWithAll(obj, deep - 1);
+                                }                               
+                            }
+                            break;
+                    }
+                    continue;
+                }
+
+                parameters.Value[prop.Name] = prop.GetValue(entity, null);
+
+                if (firstNode)
+                    firstNode = false;
+                else
+                    conditions.Value.Append(",");
+
+                conditions.Value.Append(string.Format("{0}:${0}", prop.Name));
+            }
+
+            string uuid = StripHyphens ? Guid.NewGuid().ToString("N") : Guid.NewGuid().ToString();
+
+            parameters.Value["Uuid"] = uuid;
+            conditions.Value.Append(firstNode ? "Uuid:$Uuid" : ",Uuid:$Uuid");
+
+            var query = new StringFormatter(QueryTemplates.TEMPLATE_CREATE);
+            query.Add("@match", hasRelationship ? match.ToString() : string.Empty);
+            query.Add("@node", entity.Label);
+            query.Add("@conditions", conditions.Value.ToString());
+            query.Add("@clause", hasRelationship ? clause : string.Empty);
+
+            IStatementResult result = ExecuteQuery(query.ToString(), parameters.Value);
+
+            if (result.Summary.Counters.NodesCreated == 0)
+                throw new Exception("Node creation error!");
+
+            return result;
+        }
+        public IStatementResult DeleteAll()
+        {
+            var query = new StringFormatter(QueryTemplates.TEMPLATE_CREATE);
+            IStatementResult result = ExecuteQuery(query.ToString());
+            return result;
+        }
+
+        public IStatementResult Add(EntityBase entity)
         {
             if (entity == null)
                 throw new ArgumentNullException("entity");
@@ -368,11 +451,78 @@ namespace NeoClient
 
             IStatementResult result = ExecuteQuery(query.ToString(), parameters.Value);
 
+            if (result.Summary.Counters.NodesCreated == 0)
+                throw new Exception("Node creation error!");
+
+            return result;
+        }
+        public T Add<T>(T entity) where T : EntityBase, new()
+        {
+            return Add((EntityBase)entity).Map<T>();
+            if (entity == null)
+                throw new ArgumentNullException("entity");
+
+            StringFormatter match = null;
+            string clause = null;
+            bool firstNode = true;
+            bool hasRelationship = false;
+
+            var parameters = new Lazy<Dictionary<string, object>>();
+                       
+            var conditions = new Lazy<StringBuilder>();
+
+            foreach (PropertyInfo prop in entity.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (prop.GetCustomAttribute(typeof(NotMappedAttribute), true) != null ||
+                    prop.GetCustomAttribute(typeof(RelationshipAttribute), true) != null)
+                    continue;                               
+
+                if (prop.Name.Equals("Uuid", StringComparison.CurrentCultureIgnoreCase))
+                    continue;
+                                
+                parameters.Value[prop.Name] = prop.GetValue(entity, null);
+
+                if (firstNode)
+                    firstNode = false;
+                else
+                    conditions.Value.Append(",");
+
+                conditions.Value.Append(string.Format("{0}:${0}", prop.Name));
+            }
+
+            string uuid = StripHyphens ? Guid.NewGuid().ToString("N") : Guid.NewGuid().ToString();
+
+            parameters.Value["Uuid"] = uuid;
+            conditions.Value.Append(firstNode ? "Uuid:$Uuid" : ",Uuid:$Uuid");
+
+            var query = new StringFormatter(QueryTemplates.TEMPLATE_CREATE);
+            query.Add("@match", hasRelationship ? match.ToString() : string.Empty);
+            query.Add("@node", entity.Label);
+            query.Add("@conditions", conditions.Value.ToString());
+            query.Add("@clause", hasRelationship ? clause : string.Empty);
+
+            IStatementResult result = ExecuteQuery(query.ToString(), parameters.Value);
+
             if(result.Summary.Counters.NodesCreated == 0)
                 throw new Exception("Node creation error!");
 
             return result.Map<T>();
         }
+        public IEnumerable<T> Add<T>(params T[] entities) where T : EntityBase, new()
+        {            
+            return Add<T>(entities);
+        }
+        public IEnumerable<T> Add<T>(IEnumerable<T> entities) where T : EntityBase, new()
+        {
+            var results = new List<T>();
+            foreach (var entity in entities)
+            {
+                var result = Add<T>(entity);
+                results.Add(result);
+            }            
+            return results;
+        }
+        
 
         public T Merge<T>(
             T entityOnCreate, 
@@ -743,6 +893,10 @@ namespace NeoClient
             return result.Summary.Counters.LabelsAdded == 1;
         }
 
+        /// <summary>
+        /// Ping method.
+        /// </summary>
+        /// <returns>Return answer from the database.</returns>
         public bool Ping()
         {
             IStatementResult result = ExecuteQuery("RETURN 1");

@@ -1,5 +1,8 @@
 ﻿namespace NeoClient.Templates
 {
+    /// <summary>
+    /// Query templates fo queries.
+    /// </summary>
     internal static class QueryTemplates
     {
         internal static string TEMPLATE_CREATE = @"@match CREATE(n:@node{@conditions}) @clause RETURN n";
@@ -16,5 +19,7 @@
         internal static string TEMPLATE_DROP = @"MATCH(n:@label{Uuid:""@Uuid""}) DETACH DELETE n";
         internal static string TEMPLATE_DROP_BY_PROPERTIES = @"MATCH(n:@label{@clause}) DETACH DELETE n";
         internal static string TEMPLATE_ADD_LABEL = @"MATCH (n{Uuid:""@Uuid""}) SET n:@label";
+
+        internal static string TEMPLATE_DELETE_ALL = @"MATCH (n) DETACH DELETE n";
     }
 }

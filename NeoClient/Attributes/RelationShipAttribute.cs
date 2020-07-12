@@ -4,7 +4,7 @@ using System.Text;
 
 namespace NeoClient.Attributes
 {
-    [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field)]
+    [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field | AttributeTargets.Class)]
     public class RelationshipAttribute : Attribute
     {
         public DIRECTION Direction { get; set; } = DIRECTION.INCOMING;

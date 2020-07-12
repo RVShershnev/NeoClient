@@ -50,5 +50,11 @@ namespace NeoClient
         void Connect();
         ITransaction BeginTransaction();
         bool Ping();
+
+        IStatementResult DeleteAll();
+        IEnumerable<T> Add<T>(params T[] entities) where T : EntityBase, new();
+        IEnumerable<T> Add<T>(IEnumerable<T> entities) where T : EntityBase, new();
+
+        IStatementResult AddNodeWithAll(EntityBase entity, int deep = int.MaxValue);
     }
 }
