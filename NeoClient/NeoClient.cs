@@ -337,7 +337,7 @@ namespace NeoClient
             var parameters = new Lazy<Dictionary<string, object>>();
 
             // new
-            var referenceParameters = new Lazy<Dictionary<string, object>>();
+            var referenceParameters = new List<(string, RelationshipAttribute)>();
 
             var conditions = new Lazy<StringBuilder>();
 
@@ -352,6 +352,7 @@ namespace NeoClient
                 // new
                 if (prop.GetCustomAttribute(typeof(RelationshipAttribute), true) != null)
                 {
+                    var atr = prop.GetCustomAttribute(typeof(RelationshipAttribute));
                     var n = prop.GetValue(entity, null);
                     switch(n)
                     {
@@ -361,8 +362,10 @@ namespace NeoClient
                             foreach (var obj in enumerable)
                             {                                
                                 if (deep != 0)
-                                {
+                                {                                   
                                     var re = AddNodeWithAll(obj, deep - 1);
+                                    var res = re.Summary.Statement.Parameters["Uuid"].ToString();
+                                    referenceParameters.Add((res, (RelationshipAttribute)atr));
                                 }                               
                             }
                             break;
@@ -393,6 +396,10 @@ namespace NeoClient
 
             IStatementResult result = ExecuteQuery(query.ToString(), parameters.Value);
 
+            foreach (var rel in referenceParameters)
+            {
+                CreateRelationship(uuid, rel.Item1, rel.Item2);
+            }
             if (result.Summary.Counters.NodesCreated == 0)
                 throw new Exception("Node creation error!");
 
