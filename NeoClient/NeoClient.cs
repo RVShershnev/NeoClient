@@ -405,12 +405,7 @@ namespace NeoClient
 
             return result;
         }
-        public IStatementResult DeleteAll()
-        {
-            var query = new StringFormatter(QueryTemplates.TEMPLATE_CREATE);
-            IStatementResult result = ExecuteQuery(query.ToString());
-            return result;
-        }
+       
 
         public IStatementResult Add(EntityBase entity)
         {
@@ -529,7 +524,8 @@ namespace NeoClient
             }            
             return results;
         }
-        
+
+      
 
         public T Merge<T>(
             T entityOnCreate, 
@@ -657,6 +653,12 @@ namespace NeoClient
             return result.Map<T>();
         }
 
+        public IStatementResult DeleteAll()
+        {
+            var query = new StringFormatter(QueryTemplates.TEMPLATE_CREATE);
+            IStatementResult result = ExecuteQuery(query.ToString());
+            return result;
+        }
         public T Delete<T>(string uuid) where T : EntityBase, new()
         {
             if (string.IsNullOrWhiteSpace(uuid))
@@ -673,6 +675,7 @@ namespace NeoClient
 
             return result.Map<T>();
         }
+
 
         public bool Drop<T>(string uuid) where T : EntityBase, new()
         {
@@ -878,6 +881,12 @@ namespace NeoClient
             return result;
         }
 
+        /// <summary>
+        /// Add label for node.
+        /// </summary>
+        /// <param name="uuid">Node uuid.</param>
+        /// <param name="labelName">New label name.</param>
+        /// <returns></returns>
         public bool AddLabel(
             string uuid, 
             string labelName)
