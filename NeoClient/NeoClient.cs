@@ -270,6 +270,7 @@ namespace NeoClient
             return result.Summary.Counters.RelationshipsCreated > 0;
         }
 
+                
         public bool DropRelationshipBetweenTwoNodes(
             string uuidIncoming,
             string uuidOutgoing,
@@ -321,60 +322,103 @@ namespace NeoClient
 
             return result.Any();
         }
-        public IStatementResult AddNodeWithAll(EntityBase entity, int deep = int.MaxValue)
+
+        public (IStatementResult, List<string>) AddNodesThroughRelation(EntityBase entity)
+        {           
+            return AddNodeWithAll(entity);
+        }
+
+        public (IStatementResult, List<string>) AddNodeWithAll(EntityBase entity, int deep = int.MaxValue)
         {
-            
             if (entity == null)
                 throw new ArgumentNullException("entity");
 
-         
-            string clause = null;
             bool firstNode = true;
-
             bool hasRelationship = false;
             StringFormatter match = null;
-
             var parameters = new Lazy<Dictionary<string, object>>();
 
             // new
-            var referenceParameters = new List<(string, RelationshipAttribute)>();
-
+            var referenceParameters = new List<(string, RelationshipAttribute, Dictionary<string, object>)>();
             var conditions = new Lazy<StringBuilder>();
+
+            List<string> Uuids = new List<string>();
+
+          
 
             foreach (PropertyInfo prop in entity.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (prop.GetCustomAttribute(typeof(NotMappedAttribute), true) != null)
-                    continue;         
-
-                if (prop.Name.Equals("Uuid", StringComparison.CurrentCultureIgnoreCase))
                     continue;
 
+                //if (prop.Name.Equals("Uuid", StringComparison.CurrentCultureIgnoreCase))
+                //    continue;
+
                 // new
-                if (prop.GetCustomAttribute(typeof(RelationshipAttribute), true) != null)
+                var ValueEntity = prop.GetValue(entity, null);
+                var atr = prop.GetCustomAttribute(typeof(RelationshipAttribute), true);
+                if (atr != null)
                 {
-                    var atr = prop.GetCustomAttribute(typeof(RelationshipAttribute));
-                    var n = prop.GetValue(entity, null);
-                    switch(n)
+                    switch (ValueEntity)
                     {
                         case EntityBase obj:
                             break;
                         case IEnumerable<EntityBase> enumerable:
                             foreach (var obj in enumerable)
-                            {                                
+                            {
+#if DEBUG                                
+                                Console.WriteLine($"object: {obj} in enumerable");
+#endif
                                 if (deep != 0)
-                                {                                   
-                                    var re = AddNodeWithAll(obj, deep - 1);
-                                    var res = re.Summary.Statement.Parameters["Uuid"].ToString();
-                                    referenceParameters.Add((res, (RelationshipAttribute)atr));
-                                }                               
+                                {
+                                    var objType = obj.GetType();
+                                    var objAtr = objType.GetCustomAttribute(typeof(RelationshipAttribute), true);
+                                    if (objAtr == null)
+                                    {
+                                        var re = AddNodeWithAll(obj, deep - 1);
+                                        var res = re.Item1.Summary.Statement.Parameters["Uuid"].ToString();
+                                        referenceParameters.Add((res, (RelationshipAttribute)atr, null));
+                                    }
+                                    else
+                                    {
+                                        var propsDictionary = new Dictionary<string, object>();
+                                        foreach (PropertyInfo propaaa in obj.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                                        {
+                                            if (propaaa.GetCustomAttribute(typeof(NotMappedAttribute), true) != null)
+                                                continue;
+
+                                            if (propaaa.Name.Equals("Uuid", StringComparison.CurrentCultureIgnoreCase))
+                                                continue;
+
+#if DEBUG
+                                            Console.WriteLine($"Name: {propaaa.Name}; Type: {propaaa.PropertyType}; Value: {propaaa.GetValue(obj, null)}");
+#endif
+
+                                            var ValueEntityR = propaaa.GetValue(obj, null);
+                                            var atrR = (RelationshipAttribute)propaaa.GetCustomAttribute(typeof(RelationshipAttribute), true);
+                                            if (atrR != null)
+                                            {
+                                                if (atrR.Direction == DIRECTION.INCOMING)
+                                                {
+                                                    var re = AddNodesThroughRelation((EntityBase)ValueEntityR);
+                                                    var res = re.Item1.Summary.Statement.Parameters["Uuid"].ToString();
+                                                    referenceParameters.Add((res, (RelationshipAttribute)atr, propsDictionary));
+                                                    for (var i = 0; i < re.Item2.Count; i++)
+                                                    {
+                                                        Uuids.Add(res);
+                                                    }
+                                                }
+                                            }
+                                            propsDictionary[prop.Name] = ValueEntityR;
+                                        }
+                                    }
+                                }
                             }
                             break;
                     }
                     continue;
                 }
-
-                parameters.Value[prop.Name] = prop.GetValue(entity, null);
-
+                parameters.Value[prop.Name] = ValueEntity;
                 if (firstNode)
                     firstNode = false;
                 else
@@ -382,30 +426,91 @@ namespace NeoClient
 
                 conditions.Value.Append(string.Format("{0}:${0}", prop.Name));
             }
+            string clause = null;
 
-            string uuid = StripHyphens ? Guid.NewGuid().ToString("N") : Guid.NewGuid().ToString();
+            //string uuid = StripHyphens ? Guid.NewGuid().ToString("N") : Guid.NewGuid().ToString();
+            //parameters.Value["Uuid"] = uuid;
+            //Uuids.Add(uuid);
+    
+            //conditions.Value.Append(firstNode ? "Uuid:$Uuid" : ",Uuid:$Uuid");
+            //var query = new StringFormatter(QueryTemplates.TEMPLATE_CREATE);
+            //query.Add("@match", hasRelationship ? match.ToString() : string.Empty);
+            //query.Add("@node", entity.Label);
+            //query.Add("@conditions", conditions.Value.ToString());
+            //query.Add("@clause", hasRelationship ? clause : string.Empty);
 
-            parameters.Value["Uuid"] = uuid;
-            conditions.Value.Append(firstNode ? "Uuid:$Uuid" : ",Uuid:$Uuid");
+            var query = $"MERGE @MERGE ON CREATE SET @ONCREATESET ON MATCH SET @ONMATCHSET RETURN @RETURN";
+            var MERGE = $@"(n:{entity.Label} {{ {nameof(entity.Uuid)}:""{parameters.Value["Uuid"]}"" }})";
+            var ONCREATESET = ParamsTostring(parameters.Value);
+            var ONMATCHSET = ParamsTostringUpdate(parameters.Value); 
+            var RETURN = $"n";
 
-            var query = new StringFormatter(QueryTemplates.TEMPLATE_CREATE);
-            query.Add("@match", hasRelationship ? match.ToString() : string.Empty);
-            query.Add("@node", entity.Label);
-            query.Add("@conditions", conditions.Value.ToString());
-            query.Add("@clause", hasRelationship ? clause : string.Empty);
-
+            query = query.Replace("@MERGE", MERGE);
+            query = query.Replace("@ONCREATESET", ONCREATESET);
+            query = query.Replace("@ONMATCHSET", ONMATCHSET);
+            query = query.Replace("@RETURN", RETURN);
+       
             IStatementResult result = ExecuteQuery(query.ToString(), parameters.Value);
-
             foreach (var rel in referenceParameters)
             {
-                CreateRelationship(uuid, rel.Item1, rel.Item2);
+                MergeRelationship(parameters.Value["Uuid"].ToString(), rel.Item1, rel.Item2);
+                //CreateRelationship(parameters.Value["Uuid"].ToString(), rel.Item1, rel.Item2, rel.Item3);
             }
-            if (result.Summary.Counters.NodesCreated == 0)
-                throw new Exception("Node creation error!");
+            //if (result.Summary.Counters.NodesCreated == 0)
+            //    throw new Exception("Node creation error!");
+            return (result, Uuids);
+        }
 
+        public string ParamsTostring(Dictionary<string, object> parameters)
+        {
+            var setCaluseOnCreate = new Lazy<StringBuilder>();
+            foreach (var item in parameters)
+            {
+                if(item.Value is string)
+                {
+                    setCaluseOnCreate.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""{item.Value}"", " : "");
+                    continue;
+                }
+                setCaluseOnCreate.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""{item.Value}"", ": "");
+            }
+            var str = setCaluseOnCreate.Value.ToString().TrimEnd(' ').TrimEnd(',');
+            return str;
+        }
+
+        public string ParamsTostringUpdate(Dictionary<string, object> parameters)
+        {
+            var setCaluseOnCreate = new Lazy<StringBuilder>();
+            foreach (var item in parameters)
+            {
+             
+                if (item.Key == "Uuid")
+                {
+                    continue;
+                }
+
+                if (item.Value is string)
+                {
+                    setCaluseOnCreate.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""{item.Value}"", " : "");
+                    continue;
+                }
+                setCaluseOnCreate.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""{item.Value}"", " : "");
+            }
+            var str = setCaluseOnCreate.Value.ToString().TrimEnd(' ').TrimEnd(',');
+            return str;
+        }
+
+        public IStatementResult CreateIndex<T>(T entity, string propertyName) where T:EntityBase
+        {
+            var query = $"CREATE INDEX ON: {entity.Label}({propertyName})";
+            IStatementResult result = ExecuteQuery(query.ToString());
             return result;
         }
-       
+        public IStatementResult DropIndex<T>(T entity, string propertyName) where T : EntityBase
+        {
+            var query = $"DROP  INDEX ON: {entity.Label}({propertyName})";
+            IStatementResult result = ExecuteQuery(query.ToString());
+            return result;
+        }
 
         public IStatementResult Add(EntityBase entity)
         {
@@ -461,6 +566,8 @@ namespace NeoClient
         public T Add<T>(T entity) where T : EntityBase, new()
         {
             return Add((EntityBase)entity).Map<T>();
+
+            #region Delete
             if (entity == null)
                 throw new ArgumentNullException("entity");
 
@@ -509,6 +616,7 @@ namespace NeoClient
                 throw new Exception("Node creation error!");
 
             return result.Map<T>();
+            #endregion
         }
         public IEnumerable<T> Add<T>(params T[] entities) where T : EntityBase, new()
         {            
@@ -526,6 +634,8 @@ namespace NeoClient
         }
 
       
+
+       
 
         public T Merge<T>(
             T entityOnCreate, 
@@ -655,7 +765,7 @@ namespace NeoClient
 
         public IStatementResult DeleteAll()
         {
-            var query = new StringFormatter(QueryTemplates.TEMPLATE_CREATE);
+            var query = new StringFormatter(QueryTemplates.TEMPLATE_DELETE_ALL);
             IStatementResult result = ExecuteQuery(query.ToString());
             return result;
         }
@@ -818,6 +928,33 @@ namespace NeoClient
 
             return entity;
         }
+        public IStatementResult Merge(EntityBase entity)
+        {
+            var query = $"MERGE @MERGE ON CREATE SET @ONCREATESET ON MATCH SET @ONMATCHSET RETURN @RETURN";
+            var MERGE = $"(n:{entity.Label} {{ {nameof(entity.Uuid)}:{entity.Uuid} }})";
+            var ONCREATESET = $"(n:{entity.Label} {{ {nameof(entity.Uuid)}:{entity.Uuid} }})";
+            var ONMATCHSET = $"(n:{entity.Label} {{ {nameof(entity.Uuid)}:{entity.Uuid} }})";
+            var RETURN = $"(n:{entity.Label} {{ {nameof(entity.Uuid)}:{entity.Uuid} }})";
+
+            List<string> PropertiesUpdate = new List<string>();
+
+            // MERGE(keanu: Person { name: 'Keanu Reeves' })
+            // ON CREATE SET keanu.created = timestamp()
+            // ON MATCH SET keanu.lastSeen = timestamp()
+            // RETURN keanu.name, keanu.created, keanu.lastSeen
+
+           
+
+     
+            return RunCustomQuery(query);
+        }
+
+        public IStatementResult Merge<T>(T node) where T: EntityBase, new()
+        {
+            var type = node.GetType();
+            var query = "match(n1: Publication) -[r: Reference]->(refNode: Publication) where exists(refNode.uuid) match(n2: Node { id: refNode.uuid}) create(n1) -[:Reference]->(n2) detach delete refNode";
+            return RunCustomQuery(query);
+        }
 
         public IList<T> GetAll<T>(string where = default) where T : EntityBase, new()
         {
@@ -920,7 +1057,12 @@ namespace NeoClient
             return result.FirstOrDefault()?[0].As<int>() == 1;
         }
 
-#region Commented Methods
+        public IStatementResult Merge(string uuid)
+        {
+            throw new NotImplementedException();
+        }
+
+        #region Commented Methods
         //public List<T2> GetRelatedNodesByID<T, T2>(int id) where T : EntityBase, new()
         //                                                   where T2 : EntityBase, new()
         //{
@@ -959,6 +1101,6 @@ namespace NeoClient
 
         //    return entites;
         //}
-#endregion
+        #endregion
     }
 }
