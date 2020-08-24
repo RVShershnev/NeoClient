@@ -126,6 +126,8 @@ namespace NeoClient
             if (string.IsNullOrWhiteSpace(query))
                 throw new ArgumentNullException("query");
 
+          
+
             if (Transaction == null)
             {
                 using (var session = Driver.Session())
@@ -142,6 +144,17 @@ namespace NeoClient
 
             return parameters == null ? currentTransaction.Run(query.ToString()) :
                                         currentTransaction.Run(query.ToString(), parameters);
+        }
+
+        /// <summary>
+        /// Ping method.
+        /// </summary>
+        /// <returns>Return answer from the database.</returns>
+        public bool Ping()
+        {
+            IStatementResult result = ExecuteQuery("RETURN 1");
+
+            return result.FirstOrDefault()?[0].As<int>() == 1;
         }
 
         private IDictionary<string, object> FetchRelatedNode<T>(string uuid) 
@@ -227,7 +240,15 @@ namespace NeoClient
 
             return nodes.Value;
         }
-
+        #region Queries
+        #region Add
+        #endregion  
+        #region Delete
+        #endregion
+        #region Drop
+        #endregion
+        #region Merge
+        #endregion
         public bool CreateRelationship(
             string uuidFrom,
             string uuidTo,
@@ -323,19 +344,19 @@ namespace NeoClient
             return result.Any();
         }
 
-        public (IStatementResult, List<string>) AddNodesThroughRelation(EntityBase entity)
+        public (IStatementResult, List<string>) AddNodesThroughRelation(IEntityBase entity)
         {           
             return AddNodeWithAll(entity);
         }
 
-        public (IStatementResult, List<string>) AddNodeWithAll(EntityBase entity, int deep = int.MaxValue)
+        public (IStatementResult, List<string>) AddNodeWithAll(IEntityBase entity, int deep = int.MaxValue)
         {
             if (entity == null)
                 throw new ArgumentNullException("entity");
 
             bool firstNode = true;
-            bool hasRelationship = false;
-            StringFormatter match = null;
+       
+      
             var parameters = new Lazy<Dictionary<string, object>>();
 
             // new
@@ -364,55 +385,58 @@ namespace NeoClient
                         case EntityBase obj:
                             break;
                         case IEnumerable<EntityBase> enumerable:
-                            foreach (var obj in enumerable)
+                            if (enumerable.Count() != 0)
                             {
-#if DEBUG                                
-                                Console.WriteLine($"object: {obj} in enumerable");
-#endif
-                                if (deep != 0)
+                                foreach (var obj in enumerable)
                                 {
-                                    var objType = obj.GetType();
-                                    var objAtr = objType.GetCustomAttribute(typeof(RelationshipAttribute), true);
-                                    if (objAtr == null)
+#if DEBUG
+                                    Console.WriteLine($"object: {obj} in enumerable");
+#endif
+                                    if (deep > 0)
                                     {
-                                        var re = AddNodeWithAll(obj, deep - 1);
-                                        var res = re.Item1.Summary.Statement.Parameters["Uuid"].ToString();
-                                        referenceParameters.Add((res, (RelationshipAttribute)atr, null));
-                                    }
-                                    else
-                                    {
-                                        var propsDictionary = new Dictionary<string, object>();
-                                        foreach (PropertyInfo propaaa in obj.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                                        var objType = obj.GetType();
+                                        var objAtr = objType.GetCustomAttribute(typeof(RelationshipAttribute), true);
+                                        if (objAtr == null)
                                         {
-                                            if (propaaa.GetCustomAttribute(typeof(NotMappedAttribute), true) != null)
-                                                continue;
+                                            var re = AddNodeWithAll(obj, deep - 1);
+                                            var res = re.Item1.Summary.Statement.Parameters["Uuid"].ToString();
+                                            referenceParameters.Add((res, (RelationshipAttribute)atr, null));
+                                        }
+                                        else
+                                        {
+                                            var propsDictionary = new Dictionary<string, object>();
+                                            foreach (PropertyInfo propaaa in obj.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                                            {
+                                                if (propaaa.GetCustomAttribute(typeof(NotMappedAttribute), true) != null)
+                                                    continue;
 
-                                            if (propaaa.Name.Equals("Uuid", StringComparison.CurrentCultureIgnoreCase))
-                                                continue;
+                                                if (propaaa.Name.Equals("Uuid", StringComparison.CurrentCultureIgnoreCase))
+                                                    continue;
 
 #if DEBUG
-                                            Console.WriteLine($"Name: {propaaa.Name}; Type: {propaaa.PropertyType}; Value: {propaaa.GetValue(obj, null)}");
+                                                Console.WriteLine($"Name: {propaaa.Name}; Type: {propaaa.PropertyType}; Value: {propaaa.GetValue(obj, null)}");
 #endif
 
-                                            var ValueEntityR = propaaa.GetValue(obj, null);
-                                            var atrR = (RelationshipAttribute)propaaa.GetCustomAttribute(typeof(RelationshipAttribute), true);
-                                            if (atrR != null)
-                                            {
-                                                if (atrR.Direction == DIRECTION.INCOMING)
+                                                var ValueEntityR = propaaa.GetValue(obj, null);
+                                                var atrR = (RelationshipAttribute)propaaa.GetCustomAttribute(typeof(RelationshipAttribute), true);
+                                                if (atrR != null)
                                                 {
-                                                    var re = AddNodesThroughRelation((EntityBase)ValueEntityR);
-                                                    var res = re.Item1.Summary.Statement.Parameters["Uuid"].ToString();
-                                                    referenceParameters.Add((res, (RelationshipAttribute)atr, propsDictionary));
-                                                    for (var i = 0; i < re.Item2.Count; i++)
+                                                    if (atrR.Direction == DIRECTION.INCOMING)
                                                     {
-                                                        Uuids.Add(res);
+                                                        var re = AddNodesThroughRelation((EntityBase)ValueEntityR);
+                                                        var res = re.Item1.Summary.Statement.Parameters["Uuid"].ToString();
+                                                        referenceParameters.Add((res, (RelationshipAttribute)atr, propsDictionary));
+                                                        for (var i = 0; i < re.Item2.Count; i++)
+                                                        {
+                                                            Uuids.Add(res);
+                                                        }
                                                     }
                                                 }
+                                                propsDictionary[prop.Name] = ValueEntityR;
                                             }
-                                            propsDictionary[prop.Name] = ValueEntityR;
                                         }
                                     }
-                                }
+                                }                           
                             }
                             break;
                     }
@@ -442,7 +466,7 @@ namespace NeoClient
             var query = $"MERGE @MERGE ON CREATE SET @ONCREATESET ON MATCH SET @ONMATCHSET RETURN @RETURN";
             var MERGE = $@"(n:{entity.Label} {{ {nameof(entity.Uuid)}:""{parameters.Value["Uuid"]}"" }})";
             var ONCREATESET = ParamsTostring(parameters.Value);
-            var ONMATCHSET = ParamsTostringUpdate(parameters.Value); 
+            var ONMATCHSET = ParamsTostring(parameters.Value, true); 
             var RETURN = $"n";
 
             query = query.Replace("@MERGE", MERGE);
@@ -461,36 +485,88 @@ namespace NeoClient
             return (result, Uuids);
         }
 
+        public string ParamsTostring(Dictionary<string, object> parameters, bool IsUpdate)
+        {
+            var setCaluseOnCreate = new Lazy<StringBuilder>();
+            foreach (var item in parameters)
+            {
+                if (item.Key == "Uuid" && IsUpdate)
+                {
+                    continue;
+                }
+                if (item.Value is string)
+                {
+                    var strok = EscapeSymbols.ConvertToCypher(item.Value as string);
+                    setCaluseOnCreate.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""{strok}"", " : "");
+                    continue;
+                }
+                if (item.Value is IEnumerable<object>)
+                {
+                    CollectionToQuery(setCaluseOnCreate, item);
+                    continue;
+                }
+            }
+            var str = setCaluseOnCreate.Value.ToString().TrimEnd(' ').TrimEnd(',');
+            return str;
+        }
+
+
+
         public string ParamsTostring(Dictionary<string, object> parameters)
         {
             var setCaluseOnCreate = new Lazy<StringBuilder>();
             foreach (var item in parameters)
             {
+
                 if(item.Value is string)
                 {
-                    setCaluseOnCreate.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""{item.Value}"", " : "");
+                    var strok = EscapeSymbols.ConvertToCypher(item.Value as string);
+                    setCaluseOnCreate.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""{strok}"", " : "");
                     continue;
                 }
-                setCaluseOnCreate.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""{item.Value}"", ": "");
-            }
+                if (item.Value is IEnumerable<object>)
+                {
+                    CollectionToQuery(setCaluseOnCreate, item);
+                    continue;
+                }                
+            }          
             var str = setCaluseOnCreate.Value.ToString().TrimEnd(' ').TrimEnd(',');
             return str;
+        }
+
+        private void CollectionToQuery(Lazy<StringBuilder> stringBuilder, KeyValuePair<string, object> item)
+        {
+            var collection = (item.Value as IEnumerable<object>).ToList();
+            if (collection.Count != 0)
+            {
+                stringBuilder.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""[" : "");
+                for (var i = 0; i < collection.Count; i++)
+                {
+                    var strok = EscapeSymbols.ConvertToCypher(collection[i] as string);
+                    stringBuilder.Value.Append($@"{strok}, ");
+                }
+                stringBuilder.Value.Remove(stringBuilder.Value.Length - 2, 2);
+                stringBuilder.Value.Append(@"]"", ");
+            }
         }
 
         public string ParamsTostringUpdate(Dictionary<string, object> parameters)
         {
             var setCaluseOnCreate = new Lazy<StringBuilder>();
             foreach (var item in parameters)
-            {
-             
+            {             
                 if (item.Key == "Uuid")
                 {
                     continue;
                 }
-
                 if (item.Value is string)
                 {
                     setCaluseOnCreate.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""{item.Value}"", " : "");
+                    continue;
+                }
+                if (item.Value is IEnumerable<object>)
+                {
+                    CollectionToQuery(setCaluseOnCreate, item);                    
                     continue;
                 }
                 setCaluseOnCreate.Value.Append((item.Value != null) ? $@"n.{item.Key} = ""{item.Value}"", " : "");
@@ -632,8 +708,12 @@ namespace NeoClient
             }            
             return results;
         }
-
-      
+        #endregion
+        public IStatementResult Constraints()
+        {
+            IStatementResult result = ExecuteQuery("CALL db.constraints");
+            return result;
+        }
 
        
 
@@ -1046,18 +1126,16 @@ namespace NeoClient
             return result.Summary.Counters.LabelsAdded == 1;
         }
 
-        /// <summary>
-        /// Ping method.
-        /// </summary>
-        /// <returns>Return answer from the database.</returns>
-        public bool Ping()
-        {
-            IStatementResult result = ExecuteQuery("RETURN 1");
-
-            return result.FirstOrDefault()?[0].As<int>() == 1;
-        }
+    
 
         public IStatementResult Merge(string uuid)
+        {
+            throw new NotImplementedException();
+        }
+
+      
+
+        public IStatementResult Merge(IEntityBase entity, int deep = int.MaxValue)
         {
             throw new NotImplementedException();
         }

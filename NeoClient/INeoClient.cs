@@ -55,13 +55,21 @@ namespace NeoClient
         IEnumerable<T> Add<T>(params T[] entities) where T : EntityBase, new();
         IEnumerable<T> Add<T>(IEnumerable<T> entities) where T : EntityBase, new();
 
-        (IStatementResult, List<string>) AddNodeWithAll(EntityBase entity, int deep = int.MaxValue);
+        (IStatementResult, List<string>) AddNodeWithAll(IEntityBase entity, int deep = int.MaxValue);
 
+       
+       
         IStatementResult Merge(string uuid);
 
         IStatementResult Merge<T>(T uuid) where T:EntityBase, new();
 
         IStatementResult CreateIndex<T>(T entity, string propertyName) where T : EntityBase;
         IStatementResult DropIndex<T>(T entity, string propertyName) where T : EntityBase;
+
+        /// <summary>
+        /// List all constraints in the database.
+        /// </summary>
+        /// <returns>List all constraints in the database.</returns>
+        IStatementResult Constraints();
     }
 }
