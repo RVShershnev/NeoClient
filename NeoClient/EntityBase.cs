@@ -17,7 +17,7 @@ namespace NeoClient
         }
 
         public string Label { get; set; }
-        public string Uuid { get; set; }
+        public virtual string Uuid { get; set; }
         public bool IsDeleted { get; set; }
     }
 }

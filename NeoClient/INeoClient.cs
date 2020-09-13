@@ -8,6 +8,7 @@ namespace NeoClient
 {
     public interface INeoClient : IDisposable
     {
+       
         IList<T> GetByProperty<T>(
             string propertyName, 
             object propertValue) where T : EntityBase, new();
@@ -29,7 +30,7 @@ namespace NeoClient
             T entityOnCreate, 
             T entityOnUpdate, 
             string where) where T : EntityBase, new();
-        bool MergeRelationship(
+        IStatementResult MergeRelationship(
             string uuidFrom,
             string uuidTo,
             RelationshipAttribute relationshipAttribute);

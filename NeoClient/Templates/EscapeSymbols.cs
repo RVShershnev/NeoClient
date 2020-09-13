@@ -26,7 +26,7 @@ namespace NeoClient.Templates
             for (var i = 0; i < Symbols.Count; i++)
             {
                 var rep = Symbols.ElementAt(i);
-                value = value.Replace(rep.Key, rep.Value);
+                value = value?.Replace(rep.Key, rep.Value);
             }
             return value;
         }
